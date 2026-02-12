@@ -27,11 +27,20 @@ export class Availability {
   })
   day: Day;
 
-  @Column()
-  startTime: string; // "10:00"
+@Column({ type: 'time', default: '09:00:00' })
+startTime: string;
 
-  @Column()
-  endTime: string; // "13:00"
+@Column({ type: 'time', default: '17:00:00' })
+endTime: string;
+
+
+  // NEW FIELD
+  @Column({default : 30})
+  slotDuration: number; // in minutes
+
+  // NEW FIELD
+  @Column({default : 1})
+  maxPatientsPerSlot: number;
 
   @ManyToOne(() => Doctor, (doctor) => doctor.availabilities, {
     onDelete: 'CASCADE',
