@@ -18,7 +18,5 @@ export class DoctorSignupDto {
   @IsString()
   level: string;
 
-  @IsInt()
-  @Min(0)
-  consultationFee: number;
+ 
 }
