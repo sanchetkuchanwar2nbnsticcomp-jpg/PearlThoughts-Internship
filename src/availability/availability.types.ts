@@ -1,3 +1,5 @@
+import { Day } from './availability.entity';
+
 export interface Slot {
   startTime: string;
   endTime: string;
@@ -6,6 +8,7 @@ export interface Slot {
 
 export interface AvailabilitySlotsResponse {
   availabilityId: number;
-  day: string;
+  day?: Day;       // for RECURRING
+  date?: string;   // for CUSTOM
   slots: Slot[];
 }

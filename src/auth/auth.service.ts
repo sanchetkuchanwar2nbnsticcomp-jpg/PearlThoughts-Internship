@@ -16,10 +16,19 @@ import { DoctorSignupDto } from './dto/doctor-signup.dto';
 import { Patient } from '../patient/patient.entity';
 import { PatientSignupDto } from '../patient/dto/patient-signup.dto';
 import { MailService } from './mail.service';
+import { UpdateDoctorDto } from './dto/update-doctor.dto';
+import { UpdatePatientDto } from '../patient/dto/update-patient.dto.ts';
 
 @Injectable()
 export class AuthService {
+  doctorSignup(token: string, dto: DoctorSignupDto) {
+    throw new Error('Method not implemented.');
+  }
+ 
+  
+  patientRepo: any;
   private client: OAuth2Client;
+  doctorRepo: any;
 
   constructor(
     @InjectRepository(User)
@@ -32,6 +41,7 @@ export class AuthService {
     private readonly patientRepository: Repository<Patient>,
 
     private readonly jwtService: JwtService,
+
     private readonly mailService: MailService,
   ) {
     this.client = new OAuth2Client(
@@ -81,89 +91,134 @@ export class AuthService {
     };
   }
 
-  // ======================
-  // GOOGLE LOGIN (EMAIL VERIFIED)
-  // ======================
-  async googleLogin(token: string, role: UserRole) {
-    const payload = await this.verifyGoogleToken(token);
-    if (!payload?.email) throw new BadRequestException('Invalid Google token');
+// ======================
+// GOOGLE LOGIN (EMAIL VERIFIED)
+// ======================
+async googleLogin(token: string, role: UserRole) {
 
-    let user = await this.userRepository.findOne({
-      where: { email: payload.email },
-      relations: ['doctor', 'patient'],
+  const payload = await this.verifyGoogleToken(token);
+
+  if (!payload?.email)
+    throw new BadRequestException('Invalid Google token');
+
+  let user = await this.userRepository.findOne({
+    where: { email: payload.email },
+    relations: ['doctor', 'patient'],
+  });
+
+  if (!user) {
+
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+
+    user = this.userRepository.create({
+      email: payload.email,
+      name: payload.name,
+      role,
+      isEmailVerified: false,
+      emailVerificationToken: verificationToken,
     });
 
-    if (!user) {
-      // Create new user automatically, but require email verification
-      const verificationToken = crypto.randomBytes(32).toString('hex');
-      user = this.userRepository.create({
-        email: payload.email,
-        name: payload.name,
-        role,
-        isEmailVerified: false,
-        emailVerificationToken: verificationToken,
-      });
-      await this.userRepository.save(user);
-      await this.mailService.sendVerificationEmail(user.email, verificationToken);
-
-      throw new BadRequestException(
-        'Account created. Please verify your email before logging in.',
-      );
-    }
-
-    if (!user.isEmailVerified)
-      throw new UnauthorizedException('Please verify your email before login.');
-
-    if (user.role !== role)
-      throw new BadRequestException(
-        `This email is registered as ${user.role}. Please login as ${user.role}.`,
-      );
-
-    // Create missing profile automatically
-    if (role === UserRole.DOCTOR && !user.doctor) {
-      const doctor = this.doctorRepository.create({ user, name: payload.name });
-      await this.doctorRepository.save(doctor);
-    }
-    if (role === UserRole.PATIENT && !user.patient) {
-      const patient = this.patientRepository.create({ user, name: payload.name });
-      await this.patientRepository.save(patient);
-    }
-
-    return this.signToken(user);
-  }
-
-  // ======================
-  // DOCTOR SIGNUP AFTER EMAIL VERIFIED
-  // ======================
-  async doctorSignup(token: string, dto: DoctorSignupDto) {
-    const payload = await this.verifyGoogleToken(token);
-
-    const user = await this.userRepository.findOne({
-      where: { email: payload.email },
-      relations: ['doctor'],
-    });
-
-    if (!user) throw new NotFoundException('User not found. Please login first.');
-    if (!user.isEmailVerified)
-      throw new BadRequestException(
-        'Please verify your email before registering as doctor.',
-      );
-    if (user.doctor) throw new BadRequestException('Doctor already registered.');
-
-    user.role = UserRole.DOCTOR;
     await this.userRepository.save(user);
 
-    const doctor = this.doctorRepository.create({
-      name: dto.name,
-      specialization: dto.specialization,
-      experience: dto.experience,
-      level: dto.level,
-      user,
-    });
+    await this.mailService.sendVerificationEmail(
+      user.email,
+      verificationToken,
+    );
+
+    throw new BadRequestException(
+      'Account created. Please verify your email before login.',
+    );
+  }
+
+  if (!user.isEmailVerified)
+    throw new UnauthorizedException(
+      'Please verify your email before login.',
+    );
+
+  if (user.role !== role)
+    throw new BadRequestException(
+      `This email is registered as ${user.role}. Please login as ${user.role}.`,
+    );
+
+
+  if (role === UserRole.DOCTOR && !user.doctor) {
+
+    const doctor = this.doctorRepository.create({ user });
+
     await this.doctorRepository.save(doctor);
 
-    return { message: 'Doctor registered successfully.', doctor };
   }
+
+
+  if (role === UserRole.PATIENT && !user.patient) {
+
+    const patient = this.patientRepository.create({ user });
+
+    await this.patientRepository.save(patient);
+
+  }
+
+
+  return this.signToken(user);
+
+}
+
+
+
+
+  // ======================
+  // UPDATE DOCTOR PROFILE
+  // ======================
+
+ async updateDoctorProfile(userId: number, updateData: any) {
+
+  const doctor = await this.doctorRepository.findOne({
+    where: {
+      user: { id: userId }
+    },
+    relations: ['user'],
+  });
+
+  if (!doctor) {
+    throw new NotFoundException('Doctor profile not found');
+  }
+
+  Object.assign(doctor, updateData);
+
+  await this.doctorRepository.save(doctor);
+
+  return {
+    message: 'Doctor profile updated successfully',
+    doctor,
+  };
+}
+
+
+  // ======================
+  // DELETE DOCTOR PROFILE
+  // ======================
+
+async deleteDoctorProfile(userId: number) {
+
+  const doctor = await this.doctorRepository.findOne({
+    where: {
+      user: { id: userId }
+    },
+    relations: ['user'],
+  });
+
+  if (!doctor) {
+    throw new NotFoundException('Doctor profile not found');
+  }
+
+  await this.doctorRepository.remove(doctor);
+
+  return {
+    message: 'Doctor profile deleted successfully',
+  };
+}
+
+
 
   // ======================
   // PATIENT SIGNUP AFTER EMAIL VERIFIED
@@ -186,17 +241,73 @@ export class AuthService {
     user.role = UserRole.PATIENT;
     await this.userRepository.save(user);
 
-    const patient = this.patientRepository.create({
-      name: dto.name,
-      age: dto.age,
-      gender: dto.gender,
-      phone: dto.phone,
-      user,
-    });
+const patient = this.patientRepository.create({
+  name : dto.name,
+  phone: dto.phone,
+  gender: dto.gender,
+  dateOfBirth: dto.dateOfBirth,
+  user,
+});
+
+
     await this.patientRepository.save(patient);
 
     return { message: 'Patient registered successfully.', patient };
   }
+
+  // ======================
+// UPDATE PATIENT PROFILE
+// ======================
+async updatePatientProfile(userId: number, updateData: any) {
+
+  const patient = await this.patientRepository.findOne({
+    where: {
+      user: { id: userId }
+    },
+    relations: ['user'],
+  });
+
+  if (!patient) {
+    throw new NotFoundException('Patient profile not found');
+  }
+
+  Object.assign(patient, updateData);
+
+  await this.patientRepository.save(patient);
+
+  return {
+    message: 'Patient profile updated successfully',
+    patient,
+  };
+}
+
+
+
+    // ======================
+  // DELETE PATIENT PROFILE
+  // ======================
+
+ async deletePatientProfile(userId: number) {
+
+  const patient = await this.patientRepository.findOne({
+    where: {
+      user: { id: userId }
+    },
+    relations: ['user'],
+  });
+
+  if (!patient) {
+    throw new NotFoundException('Patient profile not found');
+  }
+
+  await this.patientRepository.remove(patient);
+
+  return {
+    message: 'Patient profile deleted successfully'
+  };
+}
+
+
 
   // ======================
   // VERIFY EMAIL

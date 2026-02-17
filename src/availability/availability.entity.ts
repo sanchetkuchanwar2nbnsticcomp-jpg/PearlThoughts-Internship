@@ -4,7 +4,12 @@ import {
   Column,
   ManyToOne,
 } from 'typeorm';
+
 import { Doctor } from '../doctor/doctor.entity';
+import {
+  SchedulingType,
+  AvailabilityType,
+} from './availability.enum';
 
 export enum Day {
   MONDAY = 'Monday',
@@ -18,29 +23,50 @@ export enum Day {
 
 @Entity()
 export class Availability {
+
   @PrimaryGeneratedColumn()
   id: number;
 
   @Column({
     type: 'enum',
+    enum: AvailabilityType,
+    default: AvailabilityType.RECURRING,
+  })
+  availabilityType: AvailabilityType;
+
+  @Column({
+    type: 'enum',
     enum: Day,
+    nullable: true,
   })
   day: Day;
 
-@Column({ type: 'time', default: '09:00:00' })
-startTime: string;
+  @Column({ type: 'date', nullable: true })
+  date: string;
 
-@Column({ type: 'time', default: '17:00:00' })
-endTime: string;
+  @Column({ type: 'time' })
+  startTime: string;
 
+  @Column({ type: 'time' })
+  endTime: string;
 
-  // NEW FIELD
-  @Column({default : 30})
-  slotDuration: number; // in minutes
+  @Column({
+    type: 'enum',
+    enum: SchedulingType,
+    default: SchedulingType.WAVE,
+  })
+  schedulingType: SchedulingType;
 
-  // NEW FIELD
-  @Column({default : 1})
+  // For WAVE
+  @Column({ nullable: true })
+  slotDuration: number;
+
+  @Column({ nullable: true })
   maxPatientsPerSlot: number;
+
+  // For STREAM
+  @Column({ nullable: true })
+  consultationDuration: number;
 
   @ManyToOne(() => Doctor, (doctor) => doctor.availabilities, {
     onDelete: 'CASCADE',

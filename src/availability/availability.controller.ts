@@ -9,6 +9,7 @@ import {
   UseGuards,
   Req,
   BadRequestException,
+  Query,
 } from '@nestjs/common';
 
 import { AuthGuard } from '@nestjs/passport';
@@ -17,101 +18,119 @@ import { CreateAvailabilityDto } from './availability.dto';
 import { Day } from './availability.entity';
 
 @Controller('availability')
-@UseGuards(AuthGuard('jwt'))
 export class AvailabilityController {
 
   constructor(
     private readonly availabilityService: AvailabilityService,
   ) {}
 
-  // ✅ Add availability
+  // ✅ Doctor Adds Availability
+  @UseGuards(AuthGuard('jwt'))
   @Post()
   async addAvailability(
     @Req() req: any,
     @Body() body: CreateAvailabilityDto,
   ) {
-
-    const userId = req.user.id;
-
-    return await this.availabilityService.addAvailability(
-      userId,
+    return this.availabilityService.addAvailability(
+      req.user.id,
       body,
     );
   }
 
-
-  // ✅ Get logged-in doctor's availability
-  @Get('me')
-  async getMyAvailability(
+  // ✅ Doctor gets ALL availability (Weekly + Custom)
+  @UseGuards(AuthGuard('jwt'))
+  @Get('all')
+  async getMyAllAvailability(
     @Req() req: any,
   ) {
-
-    const userId = req.user.id;
-
-    return await this.availabilityService.getDoctorAvailability(
-      userId,
+    return this.availabilityService.getAllAvailabilityCombined(
+      req.user.id,   // userId internally converts to doctorId
     );
   }
 
-
-  // ✅ Get generated slots for logged-in doctor
-  @Get('slots/:day')
-  async getMySlots(
+  // ✅ Doctor gets Weekly Slots
+  @UseGuards(AuthGuard('jwt'))
+  @Get('slots/day/:day')
+  async getMySlotsByDay(
     @Req() req: any,
     @Param('day') day: string,
   ) {
 
-    const userId = req.user.id;
-
-    // Validate day
     if (!Object.values(Day).includes(day as Day)) {
-
       throw new BadRequestException(
         `Invalid day. Valid values: ${Object.values(Day).join(', ')}`,
       );
     }
 
-    return await this.availabilityService.getDoctorSlots(
-      userId,
+    return this.availabilityService.getDoctorSlotsByUserId(
+      req.user.id,
       day,
     );
   }
 
+  // ✅ Doctor gets Custom Slots by Date
+  @UseGuards(AuthGuard('jwt'))
+  @Get('slots/date')
+  async getMySlotsByDate(
+    @Req() req: any,
+    @Query('date') date: string,
+  ) {
+    if (!date) {
+      throw new BadRequestException('Date is required');
+    }
 
-  // ✅ NEW: Get slots by doctorId (for patients booking)
-  @Get('doctor/:doctorId/slots/:day')
-  async getDoctorSlots(
+    return this.availabilityService.getDoctorSlotsByDateForUser(
+      req.user.id,
+      date,
+    );
+  }
+
+  // 🔓 PUBLIC → Patient gets Doctor Weekly Slots
+  @Get('doctor/:doctorId/day/:day')
+  async getDoctorSlotsByDay(
     @Param('doctorId', ParseIntPipe) doctorId: number,
     @Param('day') day: string,
   ) {
 
     if (!Object.values(Day).includes(day as Day)) {
-
       throw new BadRequestException(
         `Invalid day. Valid values: ${Object.values(Day).join(', ')}`,
       );
     }
 
-    return await this.availabilityService.getDoctorSlots(
+    return this.availabilityService.getDoctorSlotsByDoctorId(
       doctorId,
       day,
     );
   }
 
+  // 🔓 PUBLIC → Patient gets Doctor Custom Slots
+  @Get('doctor/:doctorId/date')
+  async getDoctorSlotsByDate(
+    @Param('doctorId', ParseIntPipe) doctorId: number,
+    @Query('date') date: string,
+  ) {
+
+    if (!date) {
+      throw new BadRequestException('Date is required');
+    }
+
+    return this.availabilityService.getDoctorSlotsByDate(
+      doctorId,
+      date,
+    );
+  }
 
   // ✅ Delete availability
+  @UseGuards(AuthGuard('jwt'))
   @Delete(':id')
   async deleteAvailability(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: any,
   ) {
-
-    const userId = req.user.id;
-
-    return await this.availabilityService.deleteAvailability(
+    return this.availabilityService.deleteAvailability(
       id,
-      userId,
+      req.user.id,
     );
   }
-
 }
