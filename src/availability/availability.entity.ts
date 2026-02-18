@@ -57,18 +57,13 @@ export class Availability {
   })
   schedulingType: SchedulingType;
 
-  // For WAVE
   @Column({ nullable: true })
   slotDuration: number;
 
   @Column({ nullable: true })
   maxPatientsPerSlot: number;
 
-  // For STREAM
-  @Column({ nullable: true })
-  consultationDuration: number;
-
-  @ManyToOne(() => Doctor, (doctor) => doctor.availabilities, {
+  @ManyToOne(() => Doctor, doctor => doctor.availabilities, {
     onDelete: 'CASCADE',
   })
   doctor: Doctor;

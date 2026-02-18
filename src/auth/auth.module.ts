@@ -29,7 +29,7 @@ import { MailService } from './mail.service';
     JwtModule.registerAsync({
   inject: [ConfigService],
   useFactory: async (configService: ConfigService) => ({
-    secret: configService.get<string>('JWT_SECRET'), // ✅ FIXED
+    secret: configService.get<string>('SECRET'), // ✅ FIXED
     signOptions: { expiresIn: '1d' },
   }),
 }),
