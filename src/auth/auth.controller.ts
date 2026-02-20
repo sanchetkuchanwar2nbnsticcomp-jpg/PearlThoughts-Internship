@@ -7,110 +7,87 @@ import {
   BadRequestException,
   HttpException,
   HttpStatus,
+  ParseIntPipe,
 } from '@nestjs/common';
 
 import { AuthService } from './auth.service';
+import { UserRole } from './user.entity';
+import { DoctorSignupDto } from './dto/doctor-signup.dto';
 
 @Controller('auth')
 export class AuthController {
-
   constructor(private readonly authService: AuthService) {}
 
-  // ✅ Browser test route
+  // ======================
+  // ✅ Health check
+  // ======================
   @Get()
   testAuth() {
     return {
       status: true,
-      message: "Auth server is running",
+      message: 'Auth server is running',
       endpoints: {
-        googleLogin: "POST /auth/google",
-        getUsers: "GET /auth/users",
-        getUserById: "GET /auth/users/:id",
+        userLogin: 'POST /auth/login',
+        doctorLogin: 'POST /auth/doctor/login',
+        doctorSignup: 'POST /auth/doctor/signup',
+        getUsers: 'GET /auth/users',
+        getUserById: 'GET /auth/users/:id',
       },
     };
   }
 
-
-  // ✅ Google Login
-  @Post('google')
-  async googleLogin(@Body('token') token: string) {
-
+  // ======================
+  // 🔐 USER LOGIN
+  // ======================
+  @Post('login')
+  async userLogin(@Body('token') token: string) {
     if (!token) {
       throw new BadRequestException('Google token is required');
     }
 
-    try {
-
-      console.log("Received Google token");
-
-      const result = await this.authService.googleLogin(token);
-
-      return {
-        status: true,
-        message: result.message,
-        access_token: result.access_token,
-        user: result.user,
-      };
-
-    } catch (error) {
-
-      console.error("Google login failed:", error.message);
-
-      throw new HttpException(
-        {
-          status: false,
-          message: "Google authentication failed",
-        },
-        HttpStatus.UNAUTHORIZED,
-      );
-
-    }
-
+    return this.authService.googleLogin(token, UserRole.USER);
   }
 
+  // ======================
+  // 🔐 DOCTOR LOGIN
+  // ======================
+  @Post('doctor/login')
+  async doctorLogin(@Body('token') token: string) {
+    if (!token) {
+      throw new BadRequestException('Google token is required');
+    }
 
-  // ✅ Get all users (OPEN IN BROWSER)
+    return this.authService.googleLogin(token, UserRole.DOCTOR);
+  }
+
+  // ======================
+  // 📝 DOCTOR SIGNUP
+  // ======================
+  @Post('doctor/signup')
+  async doctorSignup(
+    @Body('token') token: string,
+    @Body() dto: DoctorSignupDto,
+  ) {
+    if (!token) {
+      throw new BadRequestException('Google token is required');
+    }
+
+    return this.authService.doctorSignup(token, dto);
+  }
+
+  // ======================
+  // 👤 GET ALL USERS
+  // ======================
   @Get('users')
   async getUsers() {
-
-    try {
-
-      return await this.authService.getAllUsers();
-
-    } catch (error) {
-
-      throw new HttpException(
-        "Failed to fetch users",
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-
-    }
-
+    return this.authService.getAllUsers();
   }
 
-
-  // ✅ Get user by ID (OPEN IN BROWSER)
+  // ======================
+  // 👤 GET USER BY ID
+  // ======================
   @Get('users/:id')
-  async getUser(@Param('id') id: number) {
-
-    try {
-
-      const user = await this.authService.getUserById(id);
-
-      return {
-        status: true,
-        user,
-      };
-
-    } catch (error) {
-
-      throw new HttpException(
-        "User not found",
-        HttpStatus.NOT_FOUND,
-      );
-
-    }
-
+  async getUser(@Param('id', ParseIntPipe) id: number) {
+    return this.authService.getUserById(id);
   }
-
 }
