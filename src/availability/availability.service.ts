@@ -3,14 +3,16 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { Availability } from './availability.entity';
+import { Availability, Day } from './availability.entity';
 import { Doctor } from '../doctor/doctor.entity';
+
 import { CreateAvailabilityDto } from './availability.dto';
 import { Slot, AvailabilitySlotsResponse } from './availability.types';
-import { Day } from './availability.entity';
+
 import {
   SchedulingType,
   AvailabilityType,
@@ -18,7 +20,6 @@ import {
 
 @Injectable()
 export class AvailabilityService {
- 
 
   constructor(
     @InjectRepository(Availability)
@@ -28,9 +29,11 @@ export class AvailabilityService {
     private readonly doctorRepository: Repository<Doctor>,
   ) {}
 
+  // ---------------- TIME HELPERS ----------------
+
   private timeToMinutes(time: string): number {
-    const [hours, minutes] = time.split(':').map(Number);
-    return hours * 60 + minutes;
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + m;
   }
 
   private minutesToTime(minutes: number): string {
@@ -39,323 +42,273 @@ export class AvailabilityService {
     return `${h}:${m}`;
   }
 
+  // ---------------- SLOT GENERATOR ----------------
+
   private generateSlots(avail: Availability): Slot[] {
 
-    let interval = 0;
-    let capacity = 1;
-
-    if (avail.schedulingType === SchedulingType.WAVE) {
-      interval = avail.slotDuration;
-      capacity = avail.maxPatientsPerSlot;
-    }
-
+    // ✅ STREAM → ONE BIG SLOT
     if (avail.schedulingType === SchedulingType.STREAM) {
-      interval = avail.consultationDuration;
-      capacity = 1;
+      return [
+        {
+          startTime: avail.startTime,
+          endTime: avail.endTime,
+          maxPatients: avail.maxPatientsPerSlot,
+        },
+      ];
     }
 
+    // ✅ WAVE → SUB SLOTS
     const slots: Slot[] = [];
 
     let start = this.timeToMinutes(avail.startTime);
     const end = this.timeToMinutes(avail.endTime);
 
-    while (start + interval <= end) {
+    while (start + avail.slotDuration <= end) {
 
       slots.push({
         startTime: this.minutesToTime(start),
-        endTime: this.minutesToTime(start + interval),
-        maxPatients: capacity,
+        endTime: this.minutesToTime(start + avail.slotDuration),
+        maxPatients: avail.maxPatientsPerSlot,
       });
 
-      start += interval;
+      start += avail.slotDuration;
     }
 
     return slots;
   }
 
-  async addAvailability(userId: number, dto: CreateAvailabilityDto) {
+  // ---------------- GET DOCTOR ----------------
+
+  private async getDoctorByUserId(userId: number): Promise<Doctor> {
 
     const doctor = await this.doctorRepository.findOne({
       where: { user: { id: userId } },
-      relations: ['user'],
     });
 
     if (!doctor)
       throw new NotFoundException('Doctor not found');
+
+    return doctor;
+  }
+
+  // ---------------- ADD AVAILABILITY ----------------
+
+  async addAvailability(userId: number, dto: CreateAvailabilityDto) {
+
+    const doctor = await this.getDoctorByUserId(userId);
 
     const start = this.timeToMinutes(dto.startTime);
     const end = this.timeToMinutes(dto.endTime);
 
     if (start >= end)
-      throw new BadRequestException('End time must be greater than start time');
+      throw new BadRequestException('Invalid time range');
 
     if (dto.availabilityType === AvailabilityType.RECURRING && !dto.day)
-      throw new BadRequestException('Day required for recurring');
+      throw new BadRequestException('Day required');
 
     if (dto.availabilityType === AvailabilityType.CUSTOM && !dto.date)
-      throw new BadRequestException('Date required for custom');
+      throw new BadRequestException('Date required');
 
-    if (
-      dto.schedulingType === SchedulingType.WAVE &&
-      (!dto.slotDuration || !dto.maxPatientsPerSlot)
-    )
-      throw new BadRequestException('slotDuration & maxPatientsPerSlot required for WAVE');
-
-    if (
-      dto.schedulingType === SchedulingType.STREAM &&
-      !dto.consultationDuration
-    )
-      throw new BadRequestException('consultationDuration required for STREAM');
-
-
-    // 🔥 OVERLAP CHECK STARTS HERE 🔥
-
-    let existingAvailabilities: Availability[] = [];
-
+    // prevent duplicate recurring
     if (dto.availabilityType === AvailabilityType.RECURRING) {
 
-      existingAvailabilities = await this.availabilityRepository.find({
+      const exists = await this.availabilityRepository.findOne({
         where: {
           doctor: { id: doctor.id },
-          day: dto.day,
           availabilityType: AvailabilityType.RECURRING,
+          day: dto.day,
         },
       });
+
+      if (exists)
+        throw new BadRequestException(
+          'Recurring availability already exists for this day',
+        );
     }
 
+    // prevent duplicate custom
     if (dto.availabilityType === AvailabilityType.CUSTOM) {
 
-      existingAvailabilities = await this.availabilityRepository.find({
+      const exists = await this.availabilityRepository.findOne({
         where: {
           doctor: { id: doctor.id },
-          date: dto.date,
           availabilityType: AvailabilityType.CUSTOM,
+          date: dto.date,
         },
       });
-    }
 
-    for (const existing of existingAvailabilities) {
-
-      const existingStart = this.timeToMinutes(existing.startTime);
-      const existingEnd = this.timeToMinutes(existing.endTime);
-
-      const isOverlap =
-        start < existingEnd &&
-        end > existingStart;
-
-      if (isOverlap) {
-
+      if (exists)
         throw new BadRequestException(
-          'Availability overlaps with existing schedule'
+          'Custom availability already exists for this date',
         );
-      }
     }
 
-    // 🔥 OVERLAP CHECK ENDS HERE 🔥
-
-
-    const availability = this.availabilityRepository.create({
-      ...dto,
-      doctor,
-    });
+    const availability =
+      this.availabilityRepository.create({
+        ...dto,
+        doctor,
+      });
 
     return await this.availabilityRepository.save(availability);
   }
 
-  async getDoctorAvailability(userId: number) {
+  // ---------------- UPDATE ----------------
 
-    const doctor = await this.doctorRepository.findOne({
-      where: { user: { id: userId } },
-    });
-
-    if (!doctor)
-      throw new NotFoundException('Doctor not found');
-
-    return await this.availabilityRepository.find({
-      where: { doctor: { id: doctor.id } },
-    });
-  }
-
-  async getDoctorSlotsByUserId(
+  async updateAvailability(
+    id: number,
     userId: number,
-    day: string,
-  ): Promise<AvailabilitySlotsResponse[]> {
+    dto: CreateAvailabilityDto,
+  ) {
 
-    const doctor = await this.doctorRepository.findOne({
-      where: { user: { id: userId } },
-    });
+    const doctor = await this.getDoctorByUserId(userId);
 
-    if (!doctor)
-      throw new NotFoundException('Doctor not found');
+    const availability =
+      await this.availabilityRepository.findOne({
+        where: { id, doctor: { id: doctor.id } },
+      });
 
-    return this.getSlotsForDoctor(doctor.id, day);
+    if (!availability)
+      throw new NotFoundException('Availability not found');
+
+    Object.assign(availability, dto);
+
+    return await this.availabilityRepository.save(availability);
   }
 
-  async getDoctorSlotsByDoctorId(
-    doctorId: number,
-    day: string,
-  ): Promise<AvailabilitySlotsResponse[]> {
-
-    const doctor = await this.doctorRepository.findOne({
-      where: { id: doctorId },
-    });
-
-    if (!doctor)
-      throw new NotFoundException('Doctor not found');
-
-    return this.getSlotsForDoctor(doctor.id, day);
-  }
-
-  private async getSlotsForDoctor(
-  doctorId: number,
-  day: string,
-): Promise<AvailabilitySlotsResponse[]> {
-
-  const today = new Date().toISOString().split('T')[0];
-
-  const availability = await this.availabilityRepository.find({
-    where: [
-      {
-        doctor: { id: doctorId },
-        availabilityType: AvailabilityType.RECURRING,
-        day: day as Day,
-      },
-      {
-        doctor: { id: doctorId },
-        availabilityType: AvailabilityType.CUSTOM,
-        date: today,
-      },
-    ],
-  });
-
-  const result: AvailabilitySlotsResponse[] = [];
-
-  for (const avail of availability) {
-
-    const slots = this.generateSlots(avail);
-
-    result.push({
-      availabilityId: avail.id,
-      day: avail.day,
-      date: avail.date,
-      slots,
-    });
-  }
-
-  return result;
-}
-
-async getDoctorSlotsByDay(
-  doctorId: number,
-  day: string,
-) {
-
-  const availability = await this.availabilityRepository.find({
-    where: {
-      doctor: { id: doctorId },
-      availabilityType: AvailabilityType.RECURRING,
-      day: day as Day,
-    },
-  });
-
-  return availability.map(avail => ({
-    availabilityId: avail.id,
-    day: avail.day,
-    slots: this.generateSlots(avail),
-  }));
-}
-
-async getDoctorSlotsByDate(
-  doctorId: number,
-  date: string,
-) {
-
-  const availability = await this.availabilityRepository.find({
-    where: {
-      doctor: { id: doctorId },
-      availabilityType: AvailabilityType.CUSTOM,
-      date: date,
-    },
-  });
-
-  return availability.map(avail => ({
-    availabilityId: avail.id,
-    date: avail.date,
-    slots: this.generateSlots(avail),
-  }));
-}
-async getAllAvailabilityCombined(
-  doctorId: number,
-) {
-
-  const availability = await this.availabilityRepository.find({
-    where: {
-      doctor: { id: doctorId },
-    },
-  });
-
-  const weeklyAvailability = availability
-    .filter(a => a.day !== null)
-    .map(a => ({
-      availabilityId: a.id,
-      day: a.day,
-      slots: this.generateSlots(a),
-    }));
-
-  const customDateAvailability = availability
-    .filter(a => a.date !== null)
-    .map(a => ({
-      availabilityId: a.id,
-      date: a.date,
-      slots: this.generateSlots(a),
-    }));
-
-  return {
-    weeklyAvailability,
-    customDateAvailability,
-  };
-}
-
-async getDoctorSlotsByDateForUser(
-  userId: number,
-  date: string,
-): Promise<AvailabilitySlotsResponse[]> {
-
-  const doctor = await this.doctorRepository.findOne({
-    where: { user: { id: userId } },
-  });
-
-  if (!doctor)
-    throw new NotFoundException('Doctor not found');
-
-  return this.getDoctorSlotsByDate(
-    doctor.id,
-    date,
-  );
-}
-
-
+  // ---------------- DELETE ----------------
 
   async deleteAvailability(id: number, userId: number) {
 
-    const doctor = await this.doctorRepository.findOne({
-      where: { user: { id: userId } },
-    });
+    const doctor = await this.getDoctorByUserId(userId);
 
-    if (!doctor)
-      throw new NotFoundException('Doctor not found');
-
-    const availability = await this.availabilityRepository.findOne({
-      where: { id, doctor: { id: doctor.id } },
-    });
+    const availability =
+      await this.availabilityRepository.findOne({
+        where: { id, doctor: { id: doctor.id } },
+      });
 
     if (!availability)
       throw new NotFoundException('Availability not found');
 
     await this.availabilityRepository.remove(availability);
 
-    return { message: 'Availability deleted successfully' };
+    return { message: 'Deleted successfully' };
   }
+
+  // ---------------- FIX: USER → DOCTOR → DAY ----------------
+
+  async getDoctorSlotsByUserId(
+    userId: number,
+    day: string,
+  ): Promise<AvailabilitySlotsResponse[]> {
+
+    const doctor = await this.getDoctorByUserId(userId);
+
+    return this.getDoctorSlotsByDoctorId(
+      doctor.id,
+      day,
+    );
+  }
+
+  // ---------------- GET BY DOCTOR ID + DAY ----------------
+
+  async getDoctorSlotsByDoctorId(
+    doctorId: number,
+    day: string,
+  ): Promise<AvailabilitySlotsResponse[]> {
+
+    const availabilities =
+      await this.availabilityRepository.find({
+        where: {
+          doctor: { id: doctorId },
+          availabilityType: AvailabilityType.RECURRING,
+          day: day as Day,
+        },
+      });
+
+    return availabilities.map(avail => ({
+      availabilityId: avail.id,
+      day: avail.day,
+      slots: this.generateSlots(avail),
+    }));
+  }
+
+  // ---------------- CUSTOM OVERRIDE ----------------
+
+  async getDoctorSlotsByDate(
+    doctorId: number,
+    date: string,
+  ): Promise<AvailabilitySlotsResponse[]> {
+
+    const custom =
+      await this.availabilityRepository.find({
+        where: {
+          doctor: { id: doctorId },
+          availabilityType: AvailabilityType.CUSTOM,
+          date,
+        },
+      });
+
+    // CUSTOM overrides recurring
+    if (custom.length > 0) {
+
+      return custom.map(avail => ({
+        availabilityId: avail.id,
+        date: avail.date,
+        slots: this.generateSlots(avail),
+      }));
+    }
+
+    const dayName = new Date(date)
+      .toLocaleDateString('en-US', { weekday: 'long' });
+
+    return this.getDoctorSlotsByDoctorId(
+      doctorId,
+      dayName,
+    );
+  }
+
+  async getDoctorSlotsByDateForUser(
+    userId: number,
+    date: string,
+  ) {
+
+    const doctor = await this.getDoctorByUserId(userId);
+
+    return this.getDoctorSlotsByDate(
+      doctor.id,
+      date,
+    );
+  }
+
+  // ---------------- GET ALL ----------------
+
+  async getAllAvailabilityCombined(userId: number) {
+
+    const doctor = await this.getDoctorByUserId(userId);
+
+    const availability =
+      await this.availabilityRepository.find({
+        where: { doctor: { id: doctor.id } },
+      });
+
+    return {
+
+      weeklyAvailability: availability
+        .filter(a => a.availabilityType === AvailabilityType.RECURRING)
+        .map(a => ({
+          id: a.id,
+          day: a.day,
+          slots: this.generateSlots(a),
+        })),
+
+      customAvailability: availability
+        .filter(a => a.availabilityType === AvailabilityType.CUSTOM)
+        .map(a => ({
+          id: a.id,
+          date: a.date,
+          slots: this.generateSlots(a),
+        })),
+    };
+  }
+
 }
-
-

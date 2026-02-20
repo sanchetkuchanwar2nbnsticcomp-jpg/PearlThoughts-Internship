@@ -34,23 +34,17 @@ export class CreateAvailabilityDto {
   @IsEnum(SchedulingType)
   schedulingType: SchedulingType;
 
-  // WAVE
+  // WAVE only
   @IsOptional()
   @IsInt()
   @Min(5)
   @Max(240)
   slotDuration?: number;
 
+  // STREAM & WAVE both use this now
   @IsOptional()
   @IsInt()
   @Min(1)
   @Max(50)
   maxPatientsPerSlot?: number;
-
-  // STREAM
-  @IsOptional()
-  @IsInt()
-  @Min(5)
-  @Max(240)
-  consultationDuration?: number;
 }

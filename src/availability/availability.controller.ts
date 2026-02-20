@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Delete,
+  Patch,
   Body,
   Param,
   ParseIntPipe,
@@ -13,6 +14,7 @@ import {
 } from '@nestjs/common';
 
 import { AuthGuard } from '@nestjs/passport';
+
 import { AvailabilityService } from './availability.service';
 import { CreateAvailabilityDto } from './availability.dto';
 import { Day } from './availability.entity';
@@ -31,20 +33,52 @@ export class AvailabilityController {
     @Req() req: any,
     @Body() body: CreateAvailabilityDto,
   ) {
+
     return this.availabilityService.addAvailability(
       req.user.id,
       body,
     );
   }
 
-  // ✅ Doctor gets ALL availability (Weekly + Custom)
+  // ✅ Doctor Updates Availability
+  @UseGuards(AuthGuard('jwt'))
+  @Patch(':id')
+  async updateAvailability(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: any,
+    @Body() body: CreateAvailabilityDto,
+  ) {
+
+    return this.availabilityService.updateAvailability(
+      id,
+      req.user.id,
+      body,
+    );
+  }
+
+  // ✅ Doctor Deletes Availability
+  @UseGuards(AuthGuard('jwt'))
+  @Delete(':id')
+  async deleteAvailability(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: any,
+  ) {
+
+    return this.availabilityService.deleteAvailability(
+      id,
+      req.user.id,
+    );
+  }
+
+  // ✅ Doctor gets ALL availability (Recurring + Custom)
   @UseGuards(AuthGuard('jwt'))
   @Get('all')
   async getMyAllAvailability(
     @Req() req: any,
   ) {
+
     return this.availabilityService.getAllAvailabilityCombined(
-      req.user.id,   // userId internally converts to doctorId
+      req.user.id,
     );
   }
 
@@ -57,6 +91,7 @@ export class AvailabilityController {
   ) {
 
     if (!Object.values(Day).includes(day as Day)) {
+
       throw new BadRequestException(
         `Invalid day. Valid values: ${Object.values(Day).join(', ')}`,
       );
@@ -68,16 +103,16 @@ export class AvailabilityController {
     );
   }
 
-  // ✅ Doctor gets Custom Slots by Date
+  // ✅ Doctor gets Slots by Date (CUSTOM overrides RECURRING)
   @UseGuards(AuthGuard('jwt'))
   @Get('slots/date')
   async getMySlotsByDate(
     @Req() req: any,
     @Query('date') date: string,
   ) {
-    if (!date) {
-      throw new BadRequestException('Date is required');
-    }
+
+    if (!date)
+      throw new BadRequestException('Date required');
 
     return this.availabilityService.getDoctorSlotsByDateForUser(
       req.user.id,
@@ -93,6 +128,7 @@ export class AvailabilityController {
   ) {
 
     if (!Object.values(Day).includes(day as Day)) {
+
       throw new BadRequestException(
         `Invalid day. Valid values: ${Object.values(Day).join(', ')}`,
       );
@@ -104,16 +140,16 @@ export class AvailabilityController {
     );
   }
 
-  // 🔓 PUBLIC → Patient gets Doctor Custom Slots
+  // 🔓 PUBLIC → Patient gets Doctor Slots by Date
+  // CUSTOM overrides RECURRING automatically
   @Get('doctor/:doctorId/date')
   async getDoctorSlotsByDate(
     @Param('doctorId', ParseIntPipe) doctorId: number,
     @Query('date') date: string,
   ) {
 
-    if (!date) {
-      throw new BadRequestException('Date is required');
-    }
+    if (!date)
+      throw new BadRequestException('Date required');
 
     return this.availabilityService.getDoctorSlotsByDate(
       doctorId,
@@ -121,16 +157,4 @@ export class AvailabilityController {
     );
   }
 
-  // ✅ Delete availability
-  @UseGuards(AuthGuard('jwt'))
-  @Delete(':id')
-  async deleteAvailability(
-    @Param('id', ParseIntPipe) id: number,
-    @Req() req: any,
-  ) {
-    return this.availabilityService.deleteAvailability(
-      id,
-      req.user.id,
-    );
-  }
 }
