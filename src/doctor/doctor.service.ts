@@ -37,7 +37,7 @@ export class DoctorService {
       specialization: data.specialization,
       experience: data.experience,
       level,
-      consultationFee,
+      user: data.user, // include user if provided
     });
 
     return this.doctorRepo.save(doctor);
@@ -47,15 +47,33 @@ export class DoctorService {
   async findAllDoctors() {
     return this.doctorRepo.find({
       order: { experience: 'DESC' },
+      relations: ['user'], // include user info
     });
   }
 
   // Get doctor by ID
   async findDoctorById(id: number) {
-    const doctor = await this.doctorRepo.findOne({ where: { id } });
+    const doctor = await this.doctorRepo.findOne({
+      where: { id },
+      relations: ['user'], // include user info
+    });
 
     if (!doctor) {
       throw new NotFoundException(`Doctor with ID ${id} not found`);
+    }
+
+    return doctor;
+  }
+
+  // ✅ NEW: Get doctor by user ID (for /me/profile)
+  async findDoctorByUserId(userId: number) {
+    const doctor = await this.doctorRepo.findOne({
+      where: { user: { id: userId } },
+      relations: ['user'], // include user details
+    });
+
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found for this user');
     }
 
     return doctor;

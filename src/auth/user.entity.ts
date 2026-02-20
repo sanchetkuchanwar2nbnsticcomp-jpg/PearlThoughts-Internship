@@ -1,3 +1,4 @@
+import { Patient } from 'src/patient/patient.entity';
 import { Doctor } from './../doctor/doctor.entity';
 import {
   Entity,
@@ -42,12 +43,17 @@ export class User {
    @Column({ default: false })
 isEmailVerified: boolean;
 
-@Column({ nullable: true })
-emailVerificationToken: string;
+  @Column({ type: 'text', nullable: true })  // ✅ FIXED
+  emailVerificationToken: string | null;
+
 
   // One user → one doctor profile (only if role = DOCTOR)
 // One user → one doctor profile (only if role = DOCTOR)
 @OneToOne(() => Doctor, (doctor) => doctor.user)
 doctor: Doctor;
+
+@OneToOne(() => Patient, (patient) => patient.user)
+patient: Patient;
+
 
 }

@@ -26,8 +26,7 @@ export class Doctor {
   @Column()
   level: string;
 
-  @Column({ type: 'int' })
-  consultationFee: number;
+
 
   // 🔐 Auth connection
   @OneToOne(() => User, (user) => user.doctor)
